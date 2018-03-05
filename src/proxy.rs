@@ -78,10 +78,10 @@
 //! [examples/extended.rs]: https://github.com/brendanzab/hyper-reverse-proxy/blob/master/examples/extended.rs
 //! [tokio_signal]: https://github.com/alexcrichton/tokio-signal
 
-
 use futures::future::Future;
 use hyper;
-use hyper::{Body, Headers, Request, Response, StatusCode};
+use hyper::{Body, Headers, Request, Response, StatusCode, Uri};
+use hyper::header::Host as HostHeader;
 use hyper::server::Service;
 use std::marker::PhantomData;
 use std::net::IpAddr;
@@ -173,15 +173,19 @@ fn create_proxied_response<B>(mut response: Response<B>) -> Response<B> {
 pub struct ReverseProxy<C: Service, B = Body> {
     client: C,
     remote_ip: Option<IpAddr>,
+    // Scheme, authority & port of the ultimately receiving server.
+    // For example: http://mybackend:5000
+    target: String,
     _phantom_data: PhantomData<B>,
 }
 
 impl<C: Service, B> ReverseProxy<C, B> {
     /// Construct a reverse proxy that dispatches to the given client.
-    pub fn new(client: C, remote_ip: Option<IpAddr>) -> ReverseProxy<C, B> {
+    pub fn new(client: C, remote_ip: Option<IpAddr>, target: String) -> ReverseProxy<C, B> {
         ReverseProxy {
             client,
             remote_ip,
+            target,
             _phantom_data: PhantomData,
         }
     }
@@ -203,6 +207,20 @@ impl<C: Service, B> ReverseProxy<C, B> {
             }
         }
 
+        if let Some(target) = format!(
+            "{target}{remainder}",
+            target = &self.target,
+            remainder = request.uri()
+        ).parse::<Uri>()
+            .ok()
+        {
+            println!("Replacing uri with {}", target.to_string());
+            request.headers_mut().remove::<HostHeader>();
+            request.set_uri(target);
+        } else {
+            eprintln!("Failed to build request url for {:?}", &request)
+        }
+
         request
     }
 }
@@ -220,7 +238,10 @@ where
     type Future = Box<Future<Item = Response<B>, Error = hyper::Error>>;
 
     fn call(&self, request: Self::Request) -> Self::Future {
+        println!("Received request is {:?}", &request);
+
         let proxied_request = self.create_proxied_request(request);
+        println!("Making a request of {:?}", &proxied_request);
 
         Box::new(self.client.call(proxied_request).then(|response| {
             Ok(match response {

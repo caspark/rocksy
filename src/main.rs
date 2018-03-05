@@ -3,8 +3,8 @@ extern crate futures;
 extern crate hyper;
 #[macro_use]
 extern crate lazy_static;
-extern crate unicase;
 extern crate tokio_core;
+extern crate unicase;
 
 mod proxy;
 
@@ -14,9 +14,11 @@ use hyper::server::Http;
 use proxy::ReverseProxy;
 use tokio_core::net::TcpListener;
 use tokio_core::reactor::Core;
-use std::net::{SocketAddr, Ipv4Addr};
+use std::net::{Ipv4Addr, SocketAddr};
 
 fn run() -> hyper::Result<()> {
+    let target = "http://localhost:8000".to_string();
+
     // Set up the Tokio reactor core
     let mut core = Core::new()?;
     let handle = core.handle();
@@ -29,7 +31,7 @@ fn run() -> hyper::Result<()> {
     let http = Http::new();
     let server = listener.incoming().for_each(|(socket, addr)| {
         let client = Client::new(&handle);
-        let service = ReverseProxy::new(client, Some(addr.ip()));
+        let service = ReverseProxy::new(client, Some(addr.ip()), target.clone());
         http.bind_connection(&handle, socket, addr, service);
         Ok(())
     });
