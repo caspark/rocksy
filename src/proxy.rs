@@ -249,7 +249,7 @@ where
             Ok(match response {
                 Ok(response) => create_proxied_response(response),
                 Err(error) => {
-                    println!("Error: {}", error); // TODO: Configurable logging
+                    eprintln!("Error: {}", error); // TODO: Configurable logging
                     Response::new().with_status(StatusCode::InternalServerError)
                     // TODO: handle trailers
                 }
