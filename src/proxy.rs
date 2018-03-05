@@ -214,9 +214,7 @@ impl<C: Service, B> ReverseProxy<C, B> {
             target_uri.push_str(query);
         }
 
-        if let Some(target) = target_uri.parse::<Uri>()
-        .ok()
-        {
+        if let Some(target) = target_uri.parse::<Uri>().ok() {
             request.headers_mut().remove::<HostHeader>();
             request.set_uri(target);
         } else {
