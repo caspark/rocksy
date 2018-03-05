@@ -207,14 +207,16 @@ impl<C: Service, B> ReverseProxy<C, B> {
             }
         }
 
-        if let Some(target) = format!(
-            "{target}{remainder}",
-            target = &self.target,
-            remainder = request.uri()
-        ).parse::<Uri>()
-            .ok()
+        let mut target_uri = self.target.clone();
+        target_uri.push_str(request.uri().path());
+        if let Some(query) = request.uri().query() {
+            target_uri.push_str("?");
+            target_uri.push_str(query);
+        }
+
+        if let Some(target) = target_uri.parse::<Uri>()
+        .ok()
         {
-            println!("Replacing uri with {}", target.to_string());
             request.headers_mut().remove::<HostHeader>();
             request.set_uri(target);
         } else {
