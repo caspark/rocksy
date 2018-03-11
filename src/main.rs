@@ -21,8 +21,9 @@ use std::net::SocketAddr;
 use std::error::Error;
 
 fn run(config: Config) -> hyper::Result<()> {
+    //FIXME update output when logic is changed
     println!(
-        "Listening on {} and proxying to first of {:?}" //FIXME update output when logic is changed,
+        "Listening on {} and proxying to first of {:?}",
         &config.listen_addr, &config.targets
     );
 
@@ -46,7 +47,6 @@ fn run(config: Config) -> hyper::Result<()> {
         let target = config
             .targets
             .first()
-            .clone()
             .expect("at least 1 target is guaranteed")
             .address
             .clone();
