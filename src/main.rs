@@ -5,6 +5,7 @@ extern crate futures;
 extern crate hyper;
 #[macro_use]
 extern crate lazy_static;
+extern crate regex;
 extern crate tokio_core;
 extern crate unicase;
 
@@ -15,10 +16,11 @@ use futures::Stream;
 use hyper::Client;
 use hyper::server::Http;
 use proxy::ReverseProxy;
+use regex::Regex;
+use std::error::Error;
+use std::net::SocketAddr;
 use tokio_core::net::TcpListener;
 use tokio_core::reactor::Core;
-use std::net::SocketAddr;
-use std::error::Error;
 
 fn run(config: Config) -> hyper::Result<()> {
     //FIXME update output when logic is changed
@@ -86,25 +88,24 @@ fn is_valid_interface(v: String) -> Result<(), String> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 struct Target {
     name: String,
     address: String,
-    //FIXME this should be of type regex
-    pattern: Option<String>,
+    pattern: Option<Regex>,
 }
 
 impl Target {
-    fn new<S: Into<String>>(name: S, address: S, pattern: Option<S>) -> Target {
+    fn new<S: Into<String>>(name: S, address: S, pattern: Option<Regex>) -> Target {
         Target {
             name: name.into(),
             address: address.into(),
-            pattern: pattern.map(Into::into),
+            pattern: pattern,
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 struct Config {
     debug: bool,
     listen_addr: SocketAddr,
@@ -126,7 +127,18 @@ fn parse_target<S: Into<String>>(v: S) -> Result<Target, String> {
 
     let mut pattern = None;
     if let Some(if_pos) = address.find(literal_if) {
-        pattern = Some(address[if_pos + literal_if.len()..].into());
+        pattern = {
+            let raw = &address[if_pos + literal_if.len()..];
+            Some(Regex::new(raw).map_err(|e| {
+                format!(
+                    "The text '{}' after '{}' is not a valid regular expression: {}",
+                    raw,
+                    literal_if,
+                    e.description()
+                ).to_owned()
+            })?)
+        };
+
         address = address[0..if_pos].into();
     }
 
@@ -225,40 +237,45 @@ mod tests {
     fn parse_target_with_everything_succeeds() {
         let t = parse_target("backend at http://127.0.0.1:9000 if ^/api.*$").unwrap();
 
-        assert_eq!(
-            t,
-            Target::new("backend", "http://127.0.0.1:9000", Some("^/api.*$"))
-        );
+        assert_eq!(t.name, "backend".to_owned());
+        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
+        assert_eq!(t.pattern.unwrap().as_str(), "^/api.*$");
     }
 
     #[test]
     fn parse_target_with_no_name_succeeds() {
         let t = parse_target("http://127.0.0.1:9000 if ^/api.*$").unwrap();
 
-        assert_eq!(
-            t,
-            Target::new(
-                "http://127.0.0.1:9000",
-                "http://127.0.0.1:9000",
-                Some("^/api.*$")
-            )
-        );
+        assert_eq!(t.name, "http://127.0.0.1:9000".to_owned());
+        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
+        assert_eq!(t.pattern.unwrap().as_str(), "^/api.*$");
     }
 
     #[test]
     fn parse_target_with_no_pattern_succeeds() {
         let t = parse_target("backend at http://127.0.0.1:9000").unwrap();
 
-        assert_eq!(t, Target::new("backend", "http://127.0.0.1:9000", None));
+        assert_eq!(t.name, "backend".to_owned());
+        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
+        assert!(t.pattern.is_none());
     }
 
     #[test]
     fn parse_target_with_neither_name_nor_pattern_succeeds() {
         let t = parse_target("http://127.0.0.1:9000").unwrap();
 
-        assert_eq!(
-            t,
-            Target::new("http://127.0.0.1:9000", "http://127.0.0.1:9000", None)
-        );
+        assert_eq!(t.name, "http://127.0.0.1:9000".to_owned());
+        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
+        assert!(t.pattern.is_none());
+    }
+
+    #[test]
+    fn parse_target_with_bad_regex_fails() {
+        let e = parse_target("http://127.0.0.1:9000 if *invalid").unwrap_err();
+
+        assert_eq!(e, "The text '*invalid' after ' if ' is not a valid regular expression: regex parse error:
+    *invalid
+    ^
+error: repetition operator missing expression");
     }
 }
