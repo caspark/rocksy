@@ -78,6 +78,7 @@
 //! [examples/extended.rs]: https://github.com/brendanzab/hyper-reverse-proxy/blob/master/examples/extended.rs
 //! [tokio_signal]: https://github.com/alexcrichton/tokio-signal
 
+use config::Target;
 use futures::future::Future;
 use hyper;
 use hyper::{Body, Headers, Request, Response, StatusCode, Uri};
@@ -173,19 +174,17 @@ fn create_proxied_response<B>(mut response: Response<B>) -> Response<B> {
 pub struct ReverseProxy<C: Service, B = Body> {
     client: C,
     remote_ip: Option<IpAddr>,
-    // Scheme, authority & port of the ultimately receiving server.
-    // For example: http://mybackend:5000
-    target: String,
+    targets: Vec<Target>,
     _phantom_data: PhantomData<B>,
 }
 
 impl<C: Service, B> ReverseProxy<C, B> {
     /// Construct a reverse proxy that dispatches to the given client.
-    pub fn new(client: C, remote_ip: Option<IpAddr>, target: String) -> ReverseProxy<C, B> {
+    pub fn new(client: C, remote_ip: Option<IpAddr>, targets: Vec<Target>) -> ReverseProxy<C, B> {
         ReverseProxy {
             client,
             remote_ip,
-            target,
+            targets,
             _phantom_data: PhantomData,
         }
     }
@@ -207,7 +206,7 @@ impl<C: Service, B> ReverseProxy<C, B> {
             }
         }
 
-        let mut target_uri = self.target.clone();
+        let mut target_uri = self.targets.first().unwrap().address().to_owned();
         target_uri.push_str(request.uri().path());
         if let Some(query) = request.uri().query() {
             target_uri.push_str("?");

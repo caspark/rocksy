@@ -9,6 +9,7 @@ extern crate regex;
 extern crate tokio_core;
 extern crate unicase;
 
+mod config;
 mod proxy;
 
 use clap::{App, AppSettings, Arg};
@@ -16,7 +17,7 @@ use futures::Stream;
 use hyper::Client;
 use hyper::server::Http;
 use proxy::ReverseProxy;
-use regex::Regex;
+use config::{parse_target, Target};
 use std::error::Error;
 use std::net::SocketAddr;
 use tokio_core::net::TcpListener;
@@ -45,15 +46,7 @@ fn run(config: Config) -> hyper::Result<()> {
         }
         let client = Client::new(&handle);
 
-        //FIXME we should pass in a function which returns the correct Target, then pass that in
-        let target = config
-            .targets
-            .first()
-            .expect("at least 1 target is guaranteed")
-            .address
-            .clone();
-
-        let service = ReverseProxy::new(client, Some(addr.ip()), target);
+        let service = ReverseProxy::new(client, Some(addr.ip()), config.targets.clone());
         http.bind_connection(&handle, socket, addr, service);
         Ok(())
     });
@@ -89,64 +82,10 @@ fn is_valid_interface(v: String) -> Result<(), String> {
 }
 
 #[derive(Clone, Debug)]
-struct Target {
-    name: String,
-    address: String,
-    pattern: Option<Regex>,
-}
-
-impl Target {
-    fn new<S: Into<String>>(name: S, address: S, pattern: Option<Regex>) -> Target {
-        Target {
-            name: name.into(),
-            address: address.into(),
-            pattern: pattern,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
 struct Config {
     debug: bool,
     listen_addr: SocketAddr,
     targets: Vec<Target>,
-}
-
-fn parse_target<S: Into<String>>(v: S) -> Result<Target, String> {
-    // expected format is "name at target_url if regex_pattern"
-    // only target_url is strictly required
-    let literal_at = " at ";
-    let literal_if = " if ";
-
-    let mut name = None;
-    let mut address = v.into();
-    if let Some(at_pos) = address.find(literal_at) {
-        name = Some(address[0..at_pos].into());
-        address = address[at_pos + literal_at.len()..].into();
-    }
-
-    let mut pattern = None;
-    if let Some(if_pos) = address.find(literal_if) {
-        pattern = {
-            let raw = &address[if_pos + literal_if.len()..];
-            Some(Regex::new(raw).map_err(|e| {
-                format!(
-                    "The text '{}' after '{}' is not a valid regular expression: {}",
-                    raw,
-                    literal_if,
-                    e.description()
-                ).to_owned()
-            })?)
-        };
-
-        address = address[0..if_pos].into();
-    }
-
-    Ok(Target::new(
-        name.unwrap_or(address.clone()),
-        address,
-        pattern,
-    ))
 }
 
 fn is_valid_target(v: String) -> Result<(), String> {
@@ -226,56 +165,5 @@ fn main() {
     if let Err(error) = run(config) {
         eprintln!("Fatal error: {}", error);
         std::process::exit(1);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_target_with_everything_succeeds() {
-        let t = parse_target("backend at http://127.0.0.1:9000 if ^/api.*$").unwrap();
-
-        assert_eq!(t.name, "backend".to_owned());
-        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
-        assert_eq!(t.pattern.unwrap().as_str(), "^/api.*$");
-    }
-
-    #[test]
-    fn parse_target_with_no_name_succeeds() {
-        let t = parse_target("http://127.0.0.1:9000 if ^/api.*$").unwrap();
-
-        assert_eq!(t.name, "http://127.0.0.1:9000".to_owned());
-        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
-        assert_eq!(t.pattern.unwrap().as_str(), "^/api.*$");
-    }
-
-    #[test]
-    fn parse_target_with_no_pattern_succeeds() {
-        let t = parse_target("backend at http://127.0.0.1:9000").unwrap();
-
-        assert_eq!(t.name, "backend".to_owned());
-        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
-        assert!(t.pattern.is_none());
-    }
-
-    #[test]
-    fn parse_target_with_neither_name_nor_pattern_succeeds() {
-        let t = parse_target("http://127.0.0.1:9000").unwrap();
-
-        assert_eq!(t.name, "http://127.0.0.1:9000".to_owned());
-        assert_eq!(t.address, "http://127.0.0.1:9000".to_owned());
-        assert!(t.pattern.is_none());
-    }
-
-    #[test]
-    fn parse_target_with_bad_regex_fails() {
-        let e = parse_target("http://127.0.0.1:9000 if *invalid").unwrap_err();
-
-        assert_eq!(e, "The text '*invalid' after ' if ' is not a valid regular expression: regex parse error:
-    *invalid
-    ^
-error: repetition operator missing expression");
     }
 }
