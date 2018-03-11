@@ -24,11 +24,7 @@ use tokio_core::net::TcpListener;
 use tokio_core::reactor::Core;
 
 fn run(config: Config) -> hyper::Result<()> {
-    //FIXME update output when logic is changed
-    println!(
-        "Listening on {} and proxying to first of {:?}",
-        &config.listen_addr, &config.targets
-    );
+    println!("Listening on http://{}", &config.listen_addr);
 
     // Set up the Tokio reactor core
     let mut core = Core::new()?;

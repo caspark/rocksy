@@ -206,7 +206,18 @@ impl<C: Service, B> ReverseProxy<C, B> {
             }
         }
 
-        let mut target_uri = self.targets.first().unwrap().address().to_owned();
+        request
+    }
+
+    fn determine_target(&self, request: &Request<B>) -> Option<&Target> {
+        self.targets
+            .iter()
+            .find(|&t| t.valid_for(request.uri().path()))
+    }
+
+    fn point_request_at_target(&self, target: &Target, mut request: Request<B>) -> Request<B> {
+        let mut target_uri = target.address().to_owned();
+
         target_uri.push_str(request.uri().path());
         if let Some(query) = request.uri().query() {
             target_uri.push_str("?");
@@ -237,20 +248,27 @@ where
     type Future = Box<Future<Item = Response<B>, Error = hyper::Error>>;
 
     fn call(&self, request: Self::Request) -> Self::Future {
-        println!("Received request is {:?}", &request);
+        println!(">Received request is {:?}", &request);
 
         let proxied_request = self.create_proxied_request(request);
-        println!("Making a request of {:?}", &proxied_request);
+        if let Some(target) = self.determine_target(&proxied_request) {
+            println!(">>Determined target of {:?}", target);
+            let pointed_request = self.point_request_at_target(target, proxied_request);
 
-        Box::new(self.client.call(proxied_request).then(|response| {
-            Ok(match response {
-                Ok(response) => create_proxied_response(response),
-                Err(error) => {
-                    eprintln!("Error: {}", error); // TODO: Configurable logging
-                    Response::new().with_status(StatusCode::InternalServerError)
-                    // TODO: handle trailers
-                }
-            })
-        }))
+            println!(">>>Making a request of {:?}", &pointed_request);
+            Box::new(self.client.call(pointed_request).then(|response| {
+                Ok(match response {
+                    Ok(response) => create_proxied_response(response),
+                    Err(error) => {
+                        eprintln!("Error: {}", error); // TODO: Configurable logging
+                        Response::new().with_status(StatusCode::InternalServerError)
+                        // TODO: handle trailers
+                    }
+                })
+            }))
+        } else {
+            // FIXME no valid target for this request - should respond with 404
+            unimplemented!("No valid target for request")
+        }
     }
 }
