@@ -24,7 +24,7 @@ use tokio_core::net::TcpListener;
 use tokio_core::reactor::Core;
 
 fn run(config: Config) -> hyper::Result<()> {
-    println!("Listening on http://{}", &config.listen_addr);
+    println!("Rocksy started on http://{}", &config.listen_addr);
 
     // Set up the Tokio reactor core
     let mut core = Core::new()?;
@@ -42,7 +42,12 @@ fn run(config: Config) -> hyper::Result<()> {
         }
         let client = Client::new(&handle);
 
-        let service = ReverseProxy::new(client, Some(addr.ip()), config.targets.clone());
+        let service = ReverseProxy::new(
+            client,
+            Some(addr.ip()),
+            config.targets.clone(),
+            config.debug,
+        );
         http.bind_connection(&handle, socket, addr, service);
         Ok(())
     });

@@ -21,6 +21,10 @@ impl Target {
         self.address.as_ref()
     }
 
+    pub fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+
     pub fn valid_for(&self, uri_path: &str) -> bool {
         if let Some(ref path_matcher) = self.pattern {
             path_matcher.is_match(uri_path)

@@ -95,16 +95,23 @@ pub struct ReverseProxy<C: Service, B = Body> {
     client: C,
     remote_ip: Option<IpAddr>,
     targets: Vec<Target>,
+    debug_on: bool,
     _phantom_data: PhantomData<B>,
 }
 
 impl<C: Service, B> ReverseProxy<C, B> {
     /// Construct a reverse proxy that dispatches to the given client.
-    pub fn new(client: C, remote_ip: Option<IpAddr>, targets: Vec<Target>) -> ReverseProxy<C, B> {
+    pub fn new(
+        client: C,
+        remote_ip: Option<IpAddr>,
+        targets: Vec<Target>,
+        debug_on: bool,
+    ) -> ReverseProxy<C, B> {
         ReverseProxy {
             client,
             remote_ip,
             targets,
+            debug_on,
             _phantom_data: PhantomData,
         }
     }
@@ -168,28 +175,60 @@ where
     type Future = Box<Future<Item = Response<B>, Error = hyper::Error>>;
 
     fn call(&self, request: Self::Request) -> Self::Future {
-        println!(">Received request is {:?}", &request);
+        if self.debug_on {
+            println!("Received request is {:?}", &request);
+        }
+
+        let incoming = format!(
+            "{method} {uri}",
+            method = request.method(),
+            uri = request.uri().to_string()
+        );
 
         let proxied_request = self.create_proxied_request(request);
         if let Some(target) = self.determine_target(&proxied_request) {
-            println!(">>Determined target of {:?}", target);
+            if self.debug_on {
+                println!("Determined target of {:?}", target);
+            }
             let pointed_request = self.point_request_at_target(target, proxied_request);
 
-            println!(">>>Making a request of {:?}", &pointed_request);
-            Box::new(self.client.call(pointed_request).then(|response| {
+            if self.debug_on {
+                println!("Making a request of {:?}", &pointed_request);
+            }
+
+            // clone to allow moving target into closure
+            let target = target.clone();
+            Box::new(self.client.call(pointed_request).then(move |response| {
                 Ok(match response {
-                    Ok(response) => create_proxied_response(response),
+                    Ok(response) => {
+                        log_request_response(&incoming, target.name().as_ref(), response.status());
+                        create_proxied_response(response)
+                    }
                     Err(error) => {
-                        eprintln!("Error: {}", error); // TODO: Configurable logging
+                        eprintln!("Failed to proxy request to {:?}! {}", target, error);
                         Response::new().with_status(StatusCode::InternalServerError)
-                        // TODO: handle trailers
                     }
                 })
             }))
         } else {
             // no valid target for this request - should respond with 404
-            let r = Response::new().with_status(StatusCode::NotFound);
-            Box::new(Ok(r).into_future())
+            let response = Response::new().with_status(StatusCode::NotFound);
+            log_request_response(&incoming, "Rocksy (fallback)", response.status());
+            Box::new(Ok(response).into_future())
         }
     }
+}
+
+fn log_request_response(incoming: &str, responder: &str, status: StatusCode) {
+    let status_name = match status.canonical_reason() {
+        Some(reason) => format!(" {}", reason),
+        None => "".to_owned(),
+    };
+    println!(
+        "{incoming} -> {target_name} -> {status_code}{status_name}",
+        incoming = incoming,
+        target_name = responder,
+        status_code = status.as_u16(),
+        status_name = status_name
+    );
 }
