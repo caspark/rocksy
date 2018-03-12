@@ -21,7 +21,7 @@ Let's say you have:
 
 And you want to expose these to your browser as one app on port 5555:
 
-    rocksy -p 5555 'backend at http://127.0.0.1:9000 if ^/api.*$' 'frontend at http://127.0.0.1:8000'
+    rocksy -p 5555 'backend at http://localhost:9000 if ^/api.*$' 'frontend at http://localhost:8000'
 
 Without Rocksy, your front-end would have to make CORS requests to your
 backend, which means your backend needs to add CORS headers - but only
