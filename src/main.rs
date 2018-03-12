@@ -159,7 +159,7 @@ fn main() {
         targets,
     };
 
-    if debug_on {
+    if config.debug {
         println!("Running with config of: {:?}", &config);
     }
 
