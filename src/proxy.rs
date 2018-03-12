@@ -80,6 +80,7 @@
 
 use config::Target;
 use futures::future::Future;
+use futures::IntoFuture;
 use hyper;
 use hyper::{Body, Headers, Request, Response, StatusCode, Uri};
 use hyper::header::Host as HostHeader;
@@ -267,8 +268,9 @@ where
                 })
             }))
         } else {
-            // FIXME no valid target for this request - should respond with 404
-            unimplemented!("No valid target for request")
+            // no valid target for this request - should respond with 404
+            let r = Response::new().with_status(StatusCode::NotFound);
+            Box::new(Ok(r).into_future())
         }
     }
 }
