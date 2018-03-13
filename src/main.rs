@@ -13,8 +13,8 @@ mod config;
 mod proxy;
 
 use clap::{App, AppSettings, Arg};
-use futures::Stream;
-use hyper::Client;
+use futures::{Future, Stream};
+use hyper::{Chunk, Client};
 use hyper::server::Http;
 use proxy::ReverseProxy;
 use config::{parse_target, Target};
@@ -32,7 +32,7 @@ fn run(config: Config) -> hyper::Result<()> {
 
     // Listen to incoming requests over TCP, and forward them to a new `ReverseProxy`
     let listener = TcpListener::bind(&config.listen_addr, &handle)?;
-    let http = Http::new();
+    let http: Http<Chunk> = Http::new();
     let server = listener.incoming().for_each(|(socket, addr)| {
         if config.debug {
             println!(
@@ -48,7 +48,10 @@ fn run(config: Config) -> hyper::Result<()> {
             config.targets.clone(),
             config.debug,
         );
-        http.bind_connection(&handle, socket, addr, service);
+        let conn = http.serve_connection(socket, service);
+        let fut = conn.map(|_| ())
+            .map_err(|e| eprintln!("server connection error: {}", e.description()));
+        handle.spawn(fut);
         Ok(())
     });
 
